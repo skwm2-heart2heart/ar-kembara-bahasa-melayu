@@ -1,0 +1,1428 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AR PdPc Interaktif: Kembara Bahasa Melayu</title>
+    
+    <!-- Tailwind CSS untuk susun atur responsif -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google Fonts: Fredoka & Plus Jakarta Sans untuk kebolehbacaan tinggi di LCD -->
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Three.js untuk Grafik 3D -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    
+    <!-- MediaPipe Hands & Camera Utils untuk Pengesanan Gestur Tangan AR -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: #090d16;
+            color: #ffffff;
+        }
+
+        h1, h2, h3, .font-display {
+            font-family: 'Fredoka', sans-serif;
+        }
+
+        /* Lapisan Video Webcam (Latar Belakang AR) */
+        #webcam-video {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            object-fit: cover;
+            transform: scaleX(-1); /* Kesan cermin supaya intuitif untuk murid */
+            z-index: 1;
+        }
+
+        /* Latar Belakang Angkasa Fallback jika kamera dimatikan */
+        #space-fallback-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: radial-gradient(circle at center, #1b2735 0%, #090a0f 100%);
+            z-index: 0;
+        }
+
+        /* Kanvas 3D Three.js */
+        #three-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 2;
+            pointer-events: auto;
+        }
+
+        /* Kanvas Lukisan Rangka Tangan (Hand Skeleton) */
+        #hand-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 3;
+            pointer-events: none;
+        }
+
+        /* Lapisan Antaramuka Pengguna (HUD) */
+        #ui-layer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 10;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 1rem 1.5rem;
+        }
+
+        .interactive-ui {
+            pointer-events: auto;
+        }
+
+        /* Glassmorphism Card yang kontras tinggi untuk LCD Kelas */
+        .lcd-panel {
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 3px solid rgba(56, 189, 248, 0.5);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+        }
+
+        /* Label 3D Terapung (Projected HTML Labels) */
+        .floating-label {
+            position: fixed;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 5;
+            transition: transform 0.1s ease-out, background-color 0.2s;
+            text-align: center;
+            white-space: nowrap;
+        }
+
+        /* Kursor Tangan Maya */
+        #virtual-cursor {
+            position: fixed;
+            width: 54px;
+            height: 54px;
+            border-radius: 50%;
+            border: 4px solid #38bdf8;
+            background: rgba(56, 189, 248, 0.25);
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 15;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 0 20px rgba(56, 189, 248, 0.8);
+            transition: width 0.15s, height 0.15s, background-color 0.15s, border-color 0.15s;
+        }
+
+        #virtual-cursor.pinching {
+            width: 36px;
+            height: 36px;
+            background: rgba(250, 204, 21, 0.6);
+            border-color: #facc15;
+            box-shadow: 0 0 25px rgba(250, 204, 21, 1);
+        }
+
+        /* Butang Permainan Gaya Arked Pendidikan */
+        .game-btn {
+            transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+            box-shadow: 0 4px 0 rgba(0, 0, 0, 0.4);
+        }
+        .game-btn:hover {
+            transform: translateY(-2px);
+        }
+        .game-btn:active {
+            transform: translateY(2px);
+            box-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
+        }
+
+        /* Animasi Maklum Balas */
+        @keyframes popIn {
+            0% { transform: scale(0.5); opacity: 0; }
+            70% { transform: scale(1.08); opacity: 1; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .animate-pop {
+            animation: popIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+        }
+
+        @keyframes pulseGlow {
+            0%, 100% { box-shadow: 0 0 15px rgba(56, 189, 248, 0.5); }
+            50% { box-shadow: 0 0 30px rgba(56, 189, 248, 0.9); }
+        }
+        .glow-active {
+            animation: pulseGlow 2s infinite;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Latar Belakang Angkasa & Video Webcam AR -->
+    <div id="space-fallback-bg"></div>
+    <video id="webcam-video" autoplay playsinline muted></video>
+    
+    <!-- Kanvas 3D Three.js -->
+    <canvas id="three-canvas"></canvas>
+    
+    <!-- Kanvas Pengesanan Tangan -->
+    <canvas id="hand-canvas"></canvas>
+
+    <!-- Bekas Label 3D Dinamik -->
+    <div id="labels-container"></div>
+
+    <!-- Kursor Maya untuk Gestur Tangan -->
+    <div id="virtual-cursor">
+        <div class="w-3 h-3 bg-white rounded-full"></div>
+    </div>
+
+    <!-- Lapisan Antaramuka Utama (HUD) -->
+    <div id="ui-layer">
+        
+        <!-- BAHAGIAN ATAS: Header Skor, Tahap & Kawalan Sistem -->
+        <header class="flex flex-wrap items-center justify-between gap-3 w-full">
+            <!-- Tajuk & Lencana Tahap Penguasaan -->
+            <div class="lcd-panel rounded-2xl px-4 py-2.5 flex items-center gap-4 interactive-ui">
+                <div class="bg-sky-500/20 border-2 border-sky-400 rounded-xl p-2 text-2xl">
+                    📚
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs md:text-sm font-bold uppercase tracking-wider text-sky-400">AR PdPc Bahasa Melayu</span>
+                        <span id="tp-badge" class="bg-amber-500 text-slate-950 text-xs md:text-sm font-extrabold px-2.5 py-0.5 rounded-full">
+                            TAHAP 1
+                        </span>
+                    </div>
+                    <h1 class="text-lg md:text-2xl font-bold text-white leading-tight">Kembara Tatabahasa</h1>
+                </div>
+            </div>
+
+            <!-- Paparan Skor & Kemajuan Soalan -->
+            <div class="flex items-center gap-3 interactive-ui">
+                <div class="lcd-panel rounded-2xl px-5 py-2.5 text-center">
+                    <div class="text-xs font-bold text-slate-300 uppercase">Soalan</div>
+                    <div id="question-counter" class="text-xl md:text-3xl font-display font-bold text-amber-400">1 / 15</div>
+                </div>
+                <div class="lcd-panel rounded-2xl px-5 py-2.5 text-center">
+                    <div class="text-xs font-bold text-slate-300 uppercase">Markah</div>
+                    <div id="score-display" class="text-xl md:text-3xl font-display font-bold text-emerald-400">0</div>
+                </div>
+            </div>
+
+            <!-- Butang Kawalan (Mod Kamera/Mouse, Main Semula, Fullscreen) -->
+            <div class="flex items-center gap-2 interactive-ui">
+                <button id="toggle-mode-btn" onclick="toggleInputMode()" class="game-btn bg-indigo-600 hover:bg-indigo-500 border-2 border-indigo-300 text-white font-bold px-3.5 py-2.5 rounded-xl text-sm md:text-base flex items-center gap-2" title="Tukar antara Kawalan Tangan AR dan Tetikus/Sentuh">
+                    <span id="mode-icon">🖐️</span>
+                    <span id="mode-text" class="hidden sm:inline">Mod AR Tangan</span>
+                </button>
+
+                <button onclick="restartGame()" class="game-btn bg-rose-600 hover:bg-rose-500 border-2 border-rose-300 text-white font-bold px-3.5 py-2.5 rounded-xl text-sm md:text-base flex items-center gap-2">
+                    <span>🔄</span>
+                    <span class="hidden sm:inline">MAIN SEMULA</span>
+                </button>
+
+                <button onclick="toggleFullScreen()" class="game-btn bg-slate-700 hover:bg-slate-600 border-2 border-slate-400 text-white font-bold px-3.5 py-2.5 rounded-xl text-sm md:text-base flex items-center gap-2" title="Skrin Penuh untuk LCD">
+                    <span>⛶</span>
+                    <span class="hidden md:inline">FULLSCREEN</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- BAHAGIAN TENGAH: Panel Soalan Besar (Jelas untuk LCD Kelas) -->
+        <div id="question-banner" class="w-full max-w-4xl mx-auto mt-2">
+            <div class="lcd-panel rounded-3xl px-6 py-4 text-center border-sky-400/80">
+                <div class="inline-block bg-sky-500/30 border border-sky-400 rounded-full px-4 py-0.5 text-xs md:text-sm font-bold text-sky-200 mb-1" id="question-skill">
+                    Kemahiran: Mengenal Pasti Planet
+                </div>
+                <h2 id="question-text" class="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-display font-bold text-white leading-snug drop-shadow">
+                    Memuatkan cabaran AR...
+                </h2>
+            </div>
+        </div>
+
+        <!-- ZON KOSONG DI TENGAH UNTUK INTERAKSI 3D PICK -> DRAG -> DROP -->
+        <div class="flex-grow"></div>
+
+        <!-- BAHAGIAN BAWAH: Panduan Gestur & Status Interaksi -->
+        <footer class="w-full flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div id="gesture-guide" class="lcd-panel rounded-2xl px-5 py-2.5 flex items-center gap-3 mx-auto">
+                <span id="gesture-status-dot" class="w-3.5 h-3.5 rounded-full bg-amber-400 animate-ping"></span>
+                <span id="gesture-instruction" class="text-sm md:text-lg font-bold text-sky-100">
+                    🖐️ Halakan tangan ke kamera &amp; CUBIT (Ibu jari + Telunjuk) untuk PICK &amp; DRAG objek 3D!
+                </span>
+            </div>
+        </footer>
+    </div>
+
+    <!-- MODAL MULA / PENGENALAN AR -->
+    <div id="start-modal" class="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4">
+        <div class="lcd-panel max-w-2xl w-full rounded-3xl p-6 md:p-8 text-center animate-pop border-sky-400">
+            <div class="text-6xl mb-3">📖✨🖐️</div>
+            <h1 class="text-3xl md:text-5xl font-display font-bold text-transparent bg-clip-text bg-gradient-to-r from-sky-400 to-emerald-400 mb-3">
+                AR PdPc: Kembara Bahasa Melayu
+            </h1>
+            <p class="text-base md:text-xl text-slate-200 mb-6 leading-relaxed">
+                Selamat datang ke aktiviti pembelajaran interaktif! Gunakan pergerakan tangan anda di hadapan kamera untuk <b>MENGAMBIL (PICK)</b>, <b>MENYERET (DRAG)</b> dan <b>MELEPASKAN (DROP)</b> permata jawapan 3D ke zon sasaran yang betul.
+            </p>
+
+            <!-- Langkah Kawalan -->
+            <div class="grid grid-cols-3 gap-3 mb-6 text-left">
+                <div class="bg-slate-800/90 border border-slate-600 rounded-2xl p-3 text-center">
+                    <div class="text-3xl mb-1">🤏</div>
+                    <div class="font-bold text-amber-400 text-sm md:text-base">1. PICK</div>
+                    <div class="text-xs md:text-sm text-slate-300">Cubit jari pada objek 3D</div>
+                </div>
+                <div class="bg-slate-800/90 border border-slate-600 rounded-2xl p-3 text-center">
+                    <div class="text-3xl mb-1">✋➡️</div>
+                    <div class="font-bold text-sky-400 text-sm md:text-base">2. DRAG</div>
+                    <div class="text-xs md:text-sm text-slate-300">Gerakkan ke portal sasaran</div>
+                </div>
+                <div class="bg-slate-800/90 border border-slate-600 rounded-2xl p-3 text-center">
+                    <div class="text-3xl mb-1">🖐️✨</div>
+                    <div class="font-bold text-emerald-400 text-sm md:text-base">3. DROP</div>
+                    <div class="text-xs md:text-sm text-slate-300">Buka jari untuk lepaskan</div>
+                </div>
+            </div>
+
+            <div class="flex flex-col sm:flex-row gap-3 justify-center">
+                <button onclick="startExperience(true)" class="game-btn bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-extrabold text-lg md:text-xl px-8 py-4 rounded-2xl flex items-center justify-center gap-2">
+                    <span>📷</span> MULA DENGAN KAMERA AR
+                </button>
+                <button onclick="startExperience(false)" class="game-btn bg-slate-700 hover:bg-slate-600 border-2 border-slate-500 text-white font-bold text-base md:text-lg px-6 py-4 rounded-2xl flex items-center justify-center gap-2">
+                    <span>🖱️</span> MOD TETIKUS / SENTUH
+                </button>
+            </div>
+            <p class="text-xs text-slate-400 mt-4">Tip Guru: Klik butang FULLSCREEN di penjuru atas kanan untuk paparan penuh di LCD kelas.</p>
+        </div>
+    </div>
+
+    <!-- MODAL MAKLUM BALAS JAWAPAN (BETUL / SALAH) -->
+    <div id="feedback-modal" class="fixed inset-0 z-40 pointer-events-none hidden items-center justify-center p-4">
+        <div id="feedback-card" class="lcd-panel max-w-xl w-full rounded-3xl p-6 md:p-8 text-center animate-pop pointer-events-auto">
+            <div id="feedback-emoji" class="text-6xl md:text-7xl mb-3">🎉</div>
+            <h3 id="feedback-title" class="text-3xl md:text-4xl font-display font-bold mb-2">TAHNIAH! BETUL!</h3>
+            <p id="feedback-explanation" class="text-lg md:text-xl text-slate-200 mb-6 leading-relaxed">
+                Penerangan saintifik dipaparkan di sini.
+            </p>
+            <button id="next-question-btn" onclick="nextQuestion()" class="game-btn bg-sky-500 hover:bg-sky-400 text-slate-950 font-extrabold text-lg md:text-xl px-8 py-3.5 rounded-2xl">
+                SOALAN SETERUSNYA ➡️
+            </button>
+        </div>
+    </div>
+
+    <!-- MODAL RUMUSAN PEMBELAJARAN AKHIR -->
+    <div id="summary-modal" class="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md hidden items-center justify-center p-4 overflow-y-auto">
+        <div class="lcd-panel max-w-3xl w-full rounded-3xl p-6 md:p-8 text-center animate-pop border-emerald-400 my-auto">
+            <div class="text-6xl mb-2">🏆🌟</div>
+            <h2 class="text-3xl md:text-5xl font-display font-bold text-emerald-400 mb-2">
+                Kembara Bahasa Selesai!
+            </h2>
+            <p class="text-lg md:text-xl text-slate-300 mb-4">Rumusan Pencapaian &amp; Refleksi Pembelajaran Bahasa Melayu</p>
+
+            <!-- Kad Skor Akhir & Tahap Penguasaan -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+                <div class="bg-slate-800/90 border-2 border-emerald-500/50 rounded-2xl p-4">
+                    <div class="text-sm font-bold text-slate-400 uppercase">Jumlah Markah</div>
+                    <div id="final-score" class="text-4xl md:text-5xl font-display font-bold text-emerald-400 mt-1">500 / 500</div>
+                </div>
+                <div class="bg-slate-800/90 border-2 border-amber-500/50 rounded-2xl p-4">
+                    <div class="text-sm font-bold text-slate-400 uppercase">Tahap Penguasaan (TP)</div>
+                    <div id="final-tp" class="text-2xl md:text-3xl font-display font-bold text-amber-400 mt-2">TP 6 (Cemerlang)</div>
+                </div>
+            </div>
+
+            <!-- Senarai Rumusan Fakta Pembelajaran -->
+            <div class="bg-slate-900/90 border border-slate-700 rounded-2xl p-5 text-left mb-6">
+                <h3 class="text-lg md:text-xl font-bold text-sky-400 mb-3 flex items-center gap-2">
+                    <span>📘</span> Rumusan Konsep Utama Hari Ini (15 Topik):
+                </h3>
+                <ul id="learning-summary-list" class="space-y-2.5 text-sm md:text-base text-slate-200 max-h-56 overflow-y-auto pr-2">
+                    <!-- Diisi secara dinamik oleh JavaScript -->
+                </ul>
+            </div>
+
+            <button onclick="restartGame()" class="game-btn bg-gradient-to-r from-emerald-500 to-sky-500 hover:from-emerald-400 hover:to-sky-400 text-slate-950 font-extrabold text-xl px-10 py-4 rounded-2xl inline-flex items-center gap-3">
+                <span>🔄</span> MAIN SEMULA AKTIVITI
+            </button>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * ============================================================================
+         * 1. BANK SOALAN & KONFIGURASI TEMA PDPC (BAHASA MELAYU SEKOLAH RENDAH)
+         * ============================================================================
+         * Setiap soalan direka mengikut peningkatan Tahap Penguasaan (TP1 hingga TP5).
+         * Murid melakukan aksi PICK -> DRAG -> DROP objek 3D ke Zon Sasaran.
+         */
+        const QUESTIONS_BANK = [
+            {
+                id: 1,
+                tpLevel: "TP 1: Mengingat",
+                skill: "Kata Nama Am",
+                question: "Pilih dan seret contoh KATA NAMA AM yang merujuk kepada tempat ke dalam Portal Sasaran!",
+                targetLabel: "PORTAL: KATA NAMA AM",
+                explanation: "Betul! 'Sekolah' ialah Kata Nama Am yang merujuk kepada tempat secara umum dan ditulis dengan huruf kecil.",
+                summaryPoint: "Kata Nama Am merujuk kepada benda, manusia, haiwan atau tempat secara umum (contoh: sekolah, kucing, buku).",
+                options: [
+                    { id: "opt1", label: "sekolah", isCorrect: true, visualType: "crystal", color: 0x10b981 },
+                    { id: "opt2", label: "Si Comel", isCorrect: false, visualType: "cube", color: 0x3b82f6 },
+                    { id: "opt3", label: "Kuala Lumpur", isCorrect: false, visualType: "torus", color: 0xf59e0b }
+                ]
+            },
+            {
+                id: 2,
+                tpLevel: "TP 2: Memahami",
+                skill: "Kata Kerja Aktif Transitif",
+                question: "Aina sedang ________ buku cerita di perpustakaan sekolah dengan senyap.",
+                targetLabel: "PORTAL: KATA KERJA",
+                explanation: "Tepat sekali! 'Membaca' ialah kata kerja yang sesuai untuk perbuatan melihat dan memahami isi buku.",
+                summaryPoint: "Kata Kerja digunakan untuk menunjukkan sesuatu perbuatan atau tindakan yang dilakukan (contoh: membaca, menulis).",
+                options: [
+                    { id: "opt1", label: "menendang", isCorrect: false, visualType: "cube", color: 0xef4444 },
+                    { id: "opt2", label: "membaca", isCorrect: true, visualType: "crystal", color: 0x38bdf8 },
+                    { id: "opt3", label: "memasak", isCorrect: false, visualType: "star", color: 0xa855f7 }
+                ]
+            },
+            {
+                id: 3,
+                tpLevel: "TP 3: Mengaplikasi",
+                skill: "Kata Adjektif (Sifat / Ukuran)",
+                question: "Pokok kelapa di tepi pantai itu sangat ________ sehingga sukar dipanjat.",
+                targetLabel: "PORTAL: KATA ADJEKTIF",
+                explanation: "Syabas! 'Tinggi' ialah Kata Adjektif ukuran yang paling tepat untuk menggambarkan pokok kelapa.",
+                summaryPoint: "Kata Adjektif menerangkan sifat, keadaan, warna atau ukuran sesuatu kata nama (contoh: tinggi, cantik, pantas).",
+                options: [
+                    { id: "opt1", label: "tinggi", isCorrect: true, visualType: "star", color: 0xfacc15 },
+                    { id: "opt2", label: "masam", isCorrect: false, visualType: "cube", color: 0xec4899 },
+                    { id: "opt3", label: "merdu", isCorrect: false, visualType: "torus", color: 0x6366f1 }
+                ]
+            },
+            {
+                id: 4,
+                tpLevel: "TP 4: Menganalisis",
+                skill: "Penjodoh Bilangan",
+                question: "Ibu membeli dua ________ payung baharu untuk dibawa ke sekolah pada musim hujan.",
+                targetLabel: "PORTAL: PENJODOH BILANGAN",
+                explanation: "Cemerlang! 'Kaki' ialah penjodoh bilangan yang digunakan untuk benda yang bertangkai atau berkaki seperti payung.",
+                summaryPoint: "Penjodoh bilangan 'kaki' digunakan untuk objek bertangkai seperti payung, cendawan dan bunga.",
+                options: [
+                    { id: "opt1", label: "buah", isCorrect: false, visualType: "cube", color: 0xf97316 },
+                    { id: "opt2", label: "kaki", isCorrect: true, visualType: "crystal", color: 0x14b8a6 },
+                    { id: "opt3", label: "ekor", isCorrect: false, visualType: "star", color: 0x8b5cf6 }
+                ]
+            },
+            {
+                id: 5,
+                tpLevel: "TP 5: Menilai",
+                skill: "Peribahasa / Simpulan Bahasa",
+                question: "Murid yang ________ itu sentiasa mengulang kaji pelajaran sehingga berjaya mendapat tempat pertama.",
+                targetLabel: "PORTAL: SIMPULAN BAHASA",
+                explanation: "Luar biasa! 'Ulat buku' bermaksud orang yang rajin membaca atau suka menelaah buku pelajaran.",
+                summaryPoint: "Simpulan bahasa 'ulat buku' membawa maksud seseorang yang sangat rajin membaca buku.",
+                options: [
+                    { id: "opt1", label: "kaki bangku", isCorrect: false, visualType: "torus", color: 0xef4444 },
+                    { id: "opt2", label: "ringan tulang", isCorrect: false, visualType: "cube", color: 0x3b82f6 },
+                    { id: "opt3", label: "ulat buku", isCorrect: true, visualType: "star", color: 0x10b981 }
+                ]
+            },
+            {
+                id: 6,
+                tpLevel: "TP 1: Mengingat",
+                skill: "Kata Nama Khas",
+                question: "Pilih dan seret contoh KATA NAMA KHAS yang perlu ditulis dengan huruf besar pada pangkal katanya!",
+                targetLabel: "PORTAL: KATA NAMA KHAS",
+                explanation: "Betul! 'Sang Kancil' ialah Kata Nama Khas bagi haiwan dan huruf pertamanya mesti ditulis dengan huruf besar.",
+                summaryPoint: "Kata Nama Khas merujuk kepada nama khusus bagi manusia, haiwan, tempat atau benda (contoh: Sang Kancil, Proton Saga).",
+                options: [
+                    { id: "opt1", label: "harimau", isCorrect: false, visualType: "cube", color: 0xf97316 },
+                    { id: "opt2", label: "Sang Kancil", isCorrect: true, visualType: "crystal", color: 0x10b981 },
+                    { id: "opt3", label: "perpustakaan", isCorrect: false, visualType: "torus", color: 0x6366f1 }
+                ]
+            },
+            {
+                id: 7,
+                tpLevel: "TP 2: Memahami",
+                skill: "Kata Ganti Nama Diri",
+                question: "“________ berjanji akan belajar bersungguh-sungguh,” kata Amir dan Hakim kepada Cikgu Lina.",
+                targetLabel: "PORTAL: KATA GANTI NAMA",
+                explanation: "Tepat sekali! 'Kami' ialah Kata Ganti Nama Diri Pertama jamak yang tidak menyertakan orang yang diajak bercakap.",
+                summaryPoint: "Kata Ganti Nama Diri 'kami' digunakan untuk merujuk diri sendiri bersama rakan tanpa melibatkan pendengar.",
+                options: [
+                    { id: "opt1", label: "Kami", isCorrect: true, visualType: "star", color: 0x38bdf8 },
+                    { id: "opt2", label: "Beliau", isCorrect: false, visualType: "cube", color: 0xec4899 },
+                    { id: "opt3", label: "Baginda", isCorrect: false, visualType: "torus", color: 0xf59e0b }
+                ]
+            },
+            {
+                id: 8,
+                tpLevel: "TP 2: Memahami",
+                skill: "Kata Hubung",
+                question: "Adik menangis dengan kuat ________ terjatuh dari basikal di halaman rumah.",
+                targetLabel: "PORTAL: KATA HUBUNG",
+                explanation: "Syabas! Kata hubung 'kerana' digunakan untuk menerangkan sebab atau punca sesuatu kejadian berlaku.",
+                summaryPoint: "Kata Hubung 'kerana' digunakan untuk menghubungkan klausa yang menyatakan sebab atau alasan.",
+                options: [
+                    { id: "opt1", label: "tetapi", isCorrect: false, visualType: "torus", color: 0xef4444 },
+                    { id: "opt2", label: "sambil", isCorrect: false, visualType: "cube", color: 0x8b5cf6 },
+                    { id: "opt3", label: "kerana", isCorrect: true, visualType: "crystal", color: 0xfacc15 }
+                ]
+            },
+            {
+                id: 9,
+                tpLevel: "TP 3: Mengaplikasi",
+                skill: "Kata Sendi Nama",
+                question: "Bapa baru sahaja pulang ________ pejabat pada pukul lima petang tadi.",
+                targetLabel: "PORTAL: KATA SENDI NAMA",
+                explanation: "Betul! Kata sendi nama 'dari' digunakan di hadapan kata nama yang menunjukkan arah, tempat atau waktu.",
+                summaryPoint: "Kata sendi nama 'dari' digunakan untuk arah, tempat atau masa (ATM), manakala 'daripada' untuk punca atau perbandingan.",
+                options: [
+                    { id: "opt1", label: "dari", isCorrect: true, visualType: "crystal", color: 0x14b8a6 },
+                    { id: "opt2", label: "daripada", isCorrect: false, visualType: "cube", color: 0xf97316 },
+                    { id: "opt3", label: "kepada", isCorrect: false, visualType: "star", color: 0x3b82f6 }
+                ]
+            },
+            {
+                id: 10,
+                tpLevel: "TP 3: Mengaplikasi",
+                skill: "Kata Arah",
+                question: "Kucing kesayangan Sara sedang tidur lena di ________ meja makan.",
+                targetLabel: "PORTAL: KATA ARAH",
+                explanation: "Tepat! 'Bawah' ialah kata arah yang menunjukkan kedudukan sesuatu benda di bahagian sebelah bawah permukaan.",
+                summaryPoint: "Kata Arah hadir sebelum frasa nama untuk menunjukkan hala atau kedudukan (contoh: atas, bawah, tepi, hadapan).",
+                options: [
+                    { id: "opt1", label: "antara", isCorrect: false, visualType: "torus", color: 0xa855f7 },
+                    { id: "opt2", label: "bawah", isCorrect: true, visualType: "star", color: 0x10b981 },
+                    { id: "opt3", label: "utara", isCorrect: false, visualType: "cube", color: 0xef4444 }
+                ]
+            },
+            {
+                id: 11,
+                tpLevel: "TP 4: Menganalisis",
+                skill: "Kata Seerti (Sinonim)",
+                question: "Pilih perkataan yang SEERTI dengan perkataan 'gembira' dalam ayat: Murid-murid berasa amat gembira.",
+                targetLabel: "PORTAL: KATA SEERTI",
+                explanation: "Cemerlang! 'Riang' mempunyai maksud yang sama (sinonim) dengan perkataan 'gembira' atau 'sukacita'.",
+                summaryPoint: "Kata Seerti (Sinonim) ialah perkataan yang berbeza ejaan tetapi mempunyai makna yang sama (gembira = riang).",
+                options: [
+                    { id: "opt1", label: "duka", isCorrect: false, visualType: "cube", color: 0x6366f1 },
+                    { id: "opt2", label: "riang", isCorrect: true, visualType: "crystal", color: 0x38bdf8 },
+                    { id: "opt3", label: "gentar", isCorrect: false, visualType: "torus", color: 0xf43f5e }
+                ]
+            },
+            {
+                id: 12,
+                tpLevel: "TP 4: Menganalisis",
+                skill: "Kata Berlawan (Antonim)",
+                question: "Apakah kata BERLAWAN bagi perkataan 'rajin' yang menjadi sikap terpuji setiap murid?",
+                targetLabel: "PORTAL: KATA BERLAWAN",
+                explanation: "Tepat sekali! 'Malas' ialah kata berlawan (antonim) bagi perkataan 'rajin'.",
+                summaryPoint: "Kata Berlawan (Antonim) ialah perkataan yang berlawanan maknanya (contoh: rajin berlawanan dengan malas).",
+                options: [
+                    { id: "opt1", label: "tekun", isCorrect: false, visualType: "star", color: 0x10b981 },
+                    { id: "opt2", label: "malas", isCorrect: true, visualType: "cube", color: 0xf59e0b },
+                    { id: "opt3", label: "cekap", isCorrect: false, visualType: "torus", color: 0x8b5cf6 }
+                ]
+            },
+            {
+                id: 13,
+                tpLevel: "TP 5: Menilai",
+                skill: "Kata Ganda Penuh",
+                question: "Banyak ________ berterbangan di taman bunga yang cantik dan harum itu.",
+                targetLabel: "PORTAL: KATA GANDA",
+                explanation: "Syabas! 'Rama-rama' ialah kata ganda penuh yang merujuk kepada serangga bersayap cantik.",
+                summaryPoint: "Kata Ganda Penuh terbentuk dengan mengulang keseluruhan kata dasar (contoh: rama-rama, buku-buku, kanak-kanak).",
+                options: [
+                    { id: "opt1", label: "rama-rama", isCorrect: true, visualType: "star", color: 0xec4899 },
+                    { id: "opt2", label: "kura-kura", isCorrect: false, visualType: "cube", color: 0x14b8a6 },
+                    { id: "opt3", label: "labah-labah", isCorrect: false, visualType: "torus", color: 0x3b82f6 }
+                ]
+            },
+            {
+                id: 14,
+                tpLevel: "TP 5: Menilai",
+                skill: "Kata Berimbuhan Awalan",
+                question: "Abang ________ basikalnya dengan berhati-hati ketika melalui jalan yang licin itu.",
+                targetLabel: "PORTAL: IMBUHAN AWALAN",
+                explanation: "Bagus! Imbuhan awalan 'meN-' pada kata dasar 'tunggang' membentuk kata kerja transitif 'menunggang'.",
+                summaryPoint: "Imbuhan awalan 'men-' digabungkan dengan kata dasar bermula huruf 't' (tunggang) menjadi 'menunggang'.",
+                options: [
+                    { id: "opt1", label: "ditunggang", isCorrect: false, visualType: "torus", color: 0xf97316 },
+                    { id: "opt2", label: "menunggang", isCorrect: true, visualType: "crystal", color: 0x10b981 },
+                    { id: "opt3", label: "penunggang", isCorrect: false, visualType: "cube", color: 0x6366f1 }
+                ]
+            },
+            {
+                id: 15,
+                tpLevel: "TP 6: Mencipta / Merumus",
+                skill: "Peribahasa (Simpulan Bahasa)",
+                question: "Sikap ________ penduduk kampung berjaya membersihkan balai raya dalam masa yang singkat.",
+                targetLabel: "PORTAL: PERIBAHASA",
+                explanation: "Tahniah! 'Ringan tulang' bermaksud rajin bekerja dan suka membantu orang lain.",
+                summaryPoint: "Simpulan bahasa 'ringan tulang' bermaksud rajin bekerja atau pantas membantu dalam melakukan sesuatu tugas.",
+                options: [
+                    { id: "opt1", label: "berat tulang", isCorrect: false, visualType: "cube", color: 0xef4444 },
+                    { id: "opt2", label: "besar kepala", isCorrect: false, visualType: "torus", color: 0xa855f7 },
+                    { id: "opt3", label: "ringan tulang", isCorrect: true, visualType: "star", color: 0xfacc15 }
+                ]
+            }
+        ];
+
+        /**
+         * ============================================================================
+         * 2. PEMBOLEH UBAH GLOBAL & KEADAAN PERMAINAN (GAME STATE)
+         * ============================================================================
+         */
+        let currentQuestionIndex = 0;
+        let score = 0;
+        let isQuestionAnswered = false;
+        let useCameraAR = true;
+        let cameraActive = false;
+
+        // Pemboleh ubah Three.js
+        let scene, camera, renderer;
+        let draggableObjects = []; // Objek 3D jawapan yang boleh diambil
+        let dropZoneMesh = null;   // Zon portal sasaran 3D
+        let particleSystem = null; // Kesan zarah bintang/letupan
+        let raycaster = new THREE.Raycaster();
+        let pointerNDC = new THREE.Vector2();
+
+        // Keadaan PICK -> DRAG -> DROP
+        let grabbedObject = null;
+        let isPinching = false;
+        let wasPinching = false;
+        let cursorScreenPos = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+        let dragPlaneZ = 0;
+
+        // Audio Synthesizer (Web Audio API - Tanpa fail luar)
+        let audioCtx = null;
+
+        /**
+         * ============================================================================
+         * 3. SISTEM KESAN BUNYI (WEB AUDIO API)
+         * ============================================================================
+         */
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+        }
+
+        function playSound(type) {
+            try {
+                initAudio();
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+
+                const now = audioCtx.currentTime;
+
+                if (type === 'pick') {
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(350, now);
+                    osc.frequency.exponentialRampToValueAtTime(600, now + 0.12);
+                    gain.gain.setValueAtTime(0.25, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.12);
+                    osc.start(now);
+                    osc.stop(now + 0.12);
+                } else if (type === 'correct') {
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(523.25, now); // C5
+                    osc.frequency.setValueAtTime(659.25, now + 0.12); // E5
+                    osc.frequency.setValueAtTime(783.99, now + 0.24); // G5
+                    osc.frequency.setValueAtTime(1046.50, now + 0.36); // C6
+                    gain.gain.setValueAtTime(0.3, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.6);
+                    osc.start(now);
+                    osc.stop(now + 0.6);
+                } else if (type === 'wrong') {
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(220, now);
+                    osc.frequency.linearRampToValueAtTime(140, now + 0.35);
+                    gain.gain.setValueAtTime(0.25, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+                    osc.start(now);
+                    osc.stop(now + 0.35);
+                }
+            } catch (e) {
+                // Abaikan jika audio disekat pelayar
+            }
+        }
+
+        /**
+         * ============================================================================
+         * 4. INISIALISASI GRAFIK 3D THREE.JS
+         * ============================================================================
+         */
+        function initThreeJS() {
+            const canvas = document.getElementById('three-canvas');
+            scene = new THREE.Scene();
+
+            // Kamera Perspektif
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 0, 10);
+
+            // Renderer lutsinar (alpha: true) supaya paparan webcam di belakang kelihatan jelas
+            renderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true, antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+            // Pencahayaan 3D Dramatik
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.75);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+            dirLight.position.set(5, 8, 10);
+            scene.add(dirLight);
+
+            const backLight = new THREE.PointLight(0x38bdf8, 1.5, 25);
+            backLight.position.set(0, 2, -5);
+            scene.add(backLight);
+
+            // Cipta Portal Zon Sasaran (Drop Zone) di bahagian atas tengah
+            createDropZone();
+
+            // Cipta Zarah Bintang/Debu Angkasa Halus
+            createAmbientParticles();
+
+            // Dengar perubahan saiz skrin
+            window.addEventListener('resize', onWindowResize);
+            
+            // Dengar kawalan alternatif Mouse & Touch
+            setupMouseAndTouchControls();
+
+            // Mulakan gelung animasi
+            animate();
+        }
+
+        /**
+         * Membina Portal 3D tempat murid melepaskan jawapan (DROP ZONE)
+         */
+        function createDropZone() {
+            const group = new THREE.Group();
+
+            // Gelang luar portal bercahaya
+            const torusGeo = new THREE.TorusGeometry(1.45, 0.12, 16, 64);
+            const torusMat = new THREE.MeshStandardMaterial({
+                color: 0x38bdf8,
+                emissive: 0x0284c7,
+                emissiveIntensity: 0.8,
+                roughness: 0.2,
+                metalness: 0.8
+            });
+            const outerRing = new THREE.Mesh(torusGeo, torusMat);
+            group.add(outerRing);
+
+            // Gelang dalam berputar
+            const innerGeo = new THREE.TorusGeometry(1.1, 0.06, 16, 48);
+            const innerMat = new THREE.MeshBasicMaterial({
+                color: 0xfacc15,
+                wireframe: true
+            });
+            const innerRing = new THREE.Mesh(innerGeo, innerMat);
+            group.add(innerRing);
+
+            // Teras portal separa lutsinar
+            const coreGeo = new THREE.CircleGeometry(1.35, 32);
+            const coreMat = new THREE.MeshBasicMaterial({
+                color: 0x0ea5e9,
+                transparent: true,
+                opacity: 0.22,
+                side: THREE.DoubleSide
+            });
+            const coreMesh = new THREE.Mesh(coreGeo, coreMat);
+            group.add(coreMesh);
+
+            // Letakkan portal di bahagian atas tengah ruang 3D
+            group.position.set(0, 1.15, 0);
+            group.userData = { outerRing, innerRing, coreMat };
+            scene.add(group);
+            dropZoneMesh = group;
+        }
+
+        /**
+         * Membina Model Objek 3D Berwarna-warni untuk Pilihan Jawapan Bahasa Melayu
+         */
+        function createPlanetMesh(optionData, index, totalOptions) {
+            const group = new THREE.Group();
+
+            // Pilih bentuk geometri 3D menarik mengikut jenis visual
+            let geometry;
+            if (optionData.visualType === 'crystal') {
+                geometry = new THREE.OctahedronGeometry(0.95, 0);
+            } else if (optionData.visualType === 'star') {
+                geometry = new THREE.DodecahedronGeometry(0.9, 0);
+            } else if (optionData.visualType === 'torus') {
+                geometry = new THREE.TorusKnotGeometry(0.62, 0.22, 64, 16);
+            } else {
+                geometry = new THREE.BoxGeometry(1.25, 1.25, 1.25);
+            }
+
+            const material = new THREE.MeshStandardMaterial({
+                color: optionData.color,
+                roughness: 0.25,
+                metalness: 0.3,
+                emissive: optionData.color,
+                emissiveIntensity: 0.18
+            });
+            const sphere = new THREE.Mesh(geometry, material);
+            group.add(sphere);
+
+            // Bingkai bercahaya mengelilingi objek 3D
+            const haloGeo = new THREE.TorusGeometry(1.12, 0.04, 12, 48);
+            const haloMat = new THREE.MeshBasicMaterial({
+                color: 0xffffff,
+                transparent: true,
+                opacity: 0.45
+            });
+            const halo = new THREE.Mesh(haloGeo, haloMat);
+            group.add(halo);
+
+            // Gelang pemilihan (Highlight Ring) apabila kursor mendekati objek
+            const selGeo = new THREE.RingGeometry(1.22, 1.38, 32);
+            const selMat = new THREE.MeshBasicMaterial({
+                color: 0xfacc15,
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: 0.0
+            });
+            const selRing = new THREE.Mesh(selGeo, selMat);
+            group.add(selRing);
+
+            // Susun kedudukan di bahagian bawah skrin secara melintang
+            const spacing = window.innerWidth < 640 ? 2.4 : 3.6;
+            const startX = -((totalOptions - 1) * spacing) / 2;
+            const posX = startX + index * spacing;
+            const posY = -2.25;
+
+            group.position.set(posX, posY, 0);
+            group.userData = {
+                option: optionData,
+                homePos: new THREE.Vector3(posX, posY, 0),
+                sphere: sphere,
+                selMat: selMat,
+                labelElement: null
+            };
+
+            scene.add(group);
+            draggableObjects.push(group);
+
+            // Cipta Label HTML Terapung untuk kebolehbacaan jelas di LCD
+            createFloatingLabel(group, optionData.label);
+        }
+
+        /**
+         * Mencipta label teks besar di bawah setiap objek 3D
+         */
+        function createFloatingLabel(obj3D, text) {
+            const container = document.getElementById('labels-container');
+            const label = document.createElement('div');
+            label.className = 'floating-label bg-slate-900/90 border-2 border-sky-400 text-white font-display font-bold text-lg md:text-2xl px-4 py-1.5 rounded-2xl shadow-lg';
+            label.innerText = text;
+            container.appendChild(label);
+            obj3D.userData.labelElement = label;
+        }
+
+        /**
+         * Zarah hiasan ruang angkasa
+         */
+        function createAmbientParticles() {
+            const count = 180;
+            const geo = new THREE.BufferGeometry();
+            const positions = new Float32Array(count * 3);
+            for (let i = 0; i < count * 3; i += 3) {
+                positions[i] = (Math.random() - 0.5) * 24;
+                positions[i + 1] = (Math.random() - 0.5) * 16;
+                positions[i + 2] = (Math.random() - 0.5) * 10 - 3;
+            }
+            geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            const mat = new THREE.PointsMaterial({ color: 0x7dd3fc, size: 0.08, transparent: true, opacity: 0.7 });
+            particleSystem = new THREE.Points(geo, mat);
+            scene.add(particleSystem);
+        }
+
+        /**
+         * ============================================================================
+         * 5. PENGURUSAN SOALAN & LOGIK PERMAINAN
+         * ============================================================================
+         */
+        function loadQuestion(index) {
+            isQuestionAnswered = false;
+            grabbedObject = null;
+
+            // Bersihkan objek soalan sebelumnya
+            draggableObjects.forEach(obj => {
+                scene.remove(obj);
+                if (obj.userData.labelElement) {
+                    obj.userData.labelElement.remove();
+                }
+            });
+            draggableObjects = [];
+
+            // Reset label portal
+            const oldPortalLabel = document.getElementById('portal-label');
+            if (oldPortalLabel) oldPortalLabel.remove();
+
+            const qData = QUESTIONS_BANK[index];
+
+            // Kemas kini UI Header & Soalan
+            document.getElementById('tp-badge').innerText = qData.tpLevel;
+            document.getElementById('question-counter').innerText = `${index + 1} / ${QUESTIONS_BANK.length}`;
+            document.getElementById('question-skill').innerText = `Kemahiran: ${qData.skill}`;
+            document.getElementById('question-text').innerText = qData.question;
+
+            // Cipta label untuk portal sasaran
+            const portalLabel = document.createElement('div');
+            portalLabel.id = 'portal-label';
+            portalLabel.className = 'floating-label bg-amber-500/95 border-2 border-white text-slate-950 font-display font-extrabold text-sm md:text-lg px-4 py-1 rounded-full shadow-lg';
+            portalLabel.innerText = qData.targetLabel;
+            document.getElementById('labels-container').appendChild(portalLabel);
+            dropZoneMesh.userData.labelElement = portalLabel;
+
+            // Cipta pilihan jawapan 3D
+            qData.options.forEach((opt, idx) => {
+                createPlanetMesh(opt, idx, qData.options.length);
+            });
+        }
+
+        /**
+         * Mengemas kini kedudukan label HTML supaya sentiasa selari dengan objek 3D
+         */
+        function updateProjectedLabels() {
+            // Kemas kini label objek jawapan
+            draggableObjects.forEach(obj => {
+                if (obj.userData.labelElement) {
+                    const pos = obj.position.clone();
+                    pos.y -= 1.15; // Letak di bawah planet
+                    pos.project(camera);
+
+                    const x = (pos.x * 0.5 + 0.5) * window.innerWidth;
+                    const y = (-(pos.y * 0.5) + 0.5) * window.innerHeight;
+
+                    obj.userData.labelElement.style.left = `${x}px`;
+                    obj.userData.labelElement.style.top = `${y}px`;
+                }
+            });
+
+            // Kemas kini label portal sasaran
+            if (dropZoneMesh && dropZoneMesh.userData.labelElement) {
+                const pos = dropZoneMesh.position.clone();
+                pos.y += 1.65; // Letak di atas portal
+                pos.project(camera);
+
+                const x = (pos.x * 0.5 + 0.5) * window.innerWidth;
+                const y = (-(pos.y * 0.5) + 0.5) * window.innerHeight;
+
+                dropZoneMesh.userData.labelElement.style.left = `${x}px`;
+                dropZoneMesh.userData.labelElement.style.top = `${y}px`;
+            }
+        }
+
+        /**
+         * ============================================================================
+         * 6. LOGIK INTERAKSI: PICK -> DRAG -> DROP
+         * ============================================================================
+         */
+        function updateInteraction(screenX, screenY, pinchingState) {
+            if (isQuestionAnswered) return;
+
+            // Tukar koordinat skrin kepada Normalized Device Coordinates (-1 hingga +1)
+            pointerNDC.x = (screenX / window.innerWidth) * 2 - 1;
+            pointerNDC.y = -(screenY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(pointerNDC, camera);
+
+            // 1. Jika belum memegang objek, semak hover & cubaan PICK
+            if (!grabbedObject) {
+                let hoveredObj = null;
+
+                for (let obj of draggableObjects) {
+                    // Semak jarak sinaran ke pusat objek (lebih mesra untuk kawalan tangan AR)
+                    const distToRay = raycaster.ray.distanceToPoint(obj.position);
+                    if (distToRay < 1.25) {
+                        hoveredObj = obj;
+                        break;
+                    }
+                }
+
+                // Kesan visual hover
+                draggableObjects.forEach(obj => {
+                    if (obj === hoveredObj) {
+                        obj.userData.selMat.opacity = 0.85;
+                        obj.scale.lerp(new THREE.Vector3(1.15, 1.15, 1.15), 0.2);
+                    } else {
+                        obj.userData.selMat.opacity = 0.0;
+                        obj.scale.lerp(new THREE.Vector3(1, 1, 1), 0.2);
+                        // Kembali ke kedudukan asal dengan lancar
+                        obj.position.lerp(obj.userData.homePos, 0.15);
+                    }
+                });
+
+                // Aksi PICK: Apabila jari mula mencubit (pinch) di atas objek
+                if (pinchingState && !wasPinching && hoveredObj) {
+                    grabbedObject = hoveredObj;
+                    playSound('pick');
+                    document.getElementById('gesture-instruction').innerText = `✊ DRAG "${grabbedObject.userData.option.label}" ke dalam Portal di atas!`;
+                }
+            } 
+            // 2. Jika sedang memegang objek (DRAG)
+            else {
+                if (pinchingState) {
+                    // Unjurkan kedudukan kursor ke satah Z = 0
+                    const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+                    const intersectPoint = new THREE.Vector3();
+                    raycaster.ray.intersectPlane(plane, intersectPoint);
+
+                    if (intersectPoint) {
+                        grabbedObject.position.lerp(intersectPoint, 0.45);
+                        grabbedObject.scale.set(1.22, 1.22, 1.22);
+                    }
+
+                    // Semak jika objek berada berhampiran Zon Sasaran (Highlight Portal)
+                    const distToPortal = grabbedObject.position.distanceTo(dropZoneMesh.position);
+                    if (distToPortal < 1.8) {
+                        dropZoneMesh.scale.lerp(new THREE.Vector3(1.2, 1.2, 1.2), 0.2);
+                        dropZoneMesh.userData.coreMat.color.setHex(0x22c55e);
+                        dropZoneMesh.userData.coreMat.opacity = 0.45;
+                    } else {
+                        dropZoneMesh.scale.lerp(new THREE.Vector3(1, 1, 1), 0.2);
+                        dropZoneMesh.userData.coreMat.color.setHex(0x0ea5e9);
+                        dropZoneMesh.userData.coreMat.opacity = 0.22;
+                    }
+                } 
+                // 3. Aksi DROP: Apabila jari dilepaskan
+                else {
+                    const distToPortal = grabbedObject.position.distanceTo(dropZoneMesh.position);
+                    dropZoneMesh.scale.set(1, 1, 1);
+                    dropZoneMesh.userData.coreMat.color.setHex(0x0ea5e9);
+                    dropZoneMesh.userData.coreMat.opacity = 0.22;
+
+                    if (distToPortal < 1.85) {
+                        // Objek dilepaskan di dalam zon portal!
+                        evaluateDrop(grabbedObject);
+                    } else {
+                        // Dilepaskan di luar portal -> kembali ke tempat asal
+                        document.getElementById('gesture-instruction').innerText = "🖐️ Cubit objek dan lepaskan tepat di dalam PORTAL SASARAN!";
+                    }
+                    grabbedObject = null;
+                }
+            }
+
+            wasPinching = pinchingState;
+        }
+
+        /**
+         * Menilai jawapan apabila murid melakukan DROP ke dalam portal
+         */
+        function evaluateDrop(droppedObj) {
+            isQuestionAnswered = true;
+            const option = droppedObj.userData.option;
+            const qData = QUESTIONS_BANK[currentQuestionIndex];
+
+            // Letakkan objek tepat di tengah portal
+            droppedObj.position.copy(dropZoneMesh.position);
+
+            const modal = document.getElementById('feedback-modal');
+            const card = document.getElementById('feedback-card');
+            const emoji = document.getElementById('feedback-emoji');
+            const title = document.getElementById('feedback-title');
+            const exp = document.getElementById('feedback-explanation');
+            const nextBtn = document.getElementById('next-question-btn');
+
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+
+            if (option.isCorrect) {
+                playSound('correct');
+                score += 100;
+                document.getElementById('score-display').innerText = score;
+
+                card.className = "lcd-panel max-w-xl w-full rounded-3xl p-6 md:p-8 text-center animate-pop pointer-events-auto border-emerald-400";
+                emoji.innerText = "🌟🎉";
+                title.innerText = "TAHNIAH! JAWAPAN BETUL!";
+                title.className = "text-3xl md:text-4xl font-display font-bold mb-2 text-emerald-400";
+                exp.innerText = qData.explanation;
+                
+                // Kesan visual portal bertukar hijau
+                dropZoneMesh.userData.coreMat.color.setHex(0x10b981);
+                dropZoneMesh.userData.coreMat.opacity = 0.6;
+            } else {
+                playSound('wrong');
+                card.className = "lcd-panel max-w-xl w-full rounded-3xl p-6 md:p-8 text-center animate-pop pointer-events-auto border-rose-500";
+                emoji.innerText = "💡🤔";
+                title.innerText = "CUBA LAGI! KURANG TEPAT";
+                title.className = "text-3xl md:text-4xl font-display font-bold mb-2 text-rose-400";
+                exp.innerText = `Jawapan yang anda pilih ialah ${option.label}. ${qData.explanation}`;
+                
+                dropZoneMesh.userData.coreMat.color.setHex(0xf43f5e);
+                dropZoneMesh.userData.coreMat.opacity = 0.6;
+            }
+
+            if (currentQuestionIndex >= QUESTIONS_BANK.length - 1) {
+                nextBtn.innerText = "LIHAT RUMUSAN PEMBELAJARAN 🏆";
+            } else {
+                nextBtn.innerText = "SOALAN SETERUSNYA ➡️";
+            }
+        }
+
+        function nextQuestion() {
+            const modal = document.getElementById('feedback-modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+
+            dropZoneMesh.userData.coreMat.color.setHex(0x0ea5e9);
+            dropZoneMesh.userData.coreMat.opacity = 0.22;
+
+            currentQuestionIndex++;
+            if (currentQuestionIndex < QUESTIONS_BANK.length) {
+                loadQuestion(currentQuestionIndex);
+            } else {
+                showFinalSummary();
+            }
+        }
+
+        /**
+         * Memaparkan Rumusan Pembelajaran & Tahap Penguasaan Keseluruhan
+         */
+        function showFinalSummary() {
+            const summaryModal = document.getElementById('summary-modal');
+            summaryModal.classList.remove('hidden');
+            summaryModal.classList.add('flex');
+
+            const maxScore = QUESTIONS_BANK.length * 100;
+            document.getElementById('final-score').innerText = `${score} / ${maxScore}`;
+
+            // Penentuan Tahap Penguasaan (TP)
+            let tpText = "TP 3 (Memuaskan)";
+            if (score === maxScore) tpText = "TP 6 (Sangat Cemerlang)";
+            else if (score >= maxScore * 0.8) tpText = "TP 5 (Cemerlang)";
+            else if (score >= maxScore * 0.6) tpText = "TP 4 (Baik)";
+            document.getElementById('final-tp').innerText = tpText;
+
+            // Jana senarai rumusan fakta pembelajaran
+            const listEl = document.getElementById('learning-summary-list');
+            listEl.innerHTML = "";
+            QUESTIONS_BANK.forEach((q, idx) => {
+                const li = document.createElement('li');
+                li.className = "flex items-start gap-2.5";
+                li.innerHTML = `<span class="text-emerald-400 font-bold">✔</span> <span><b>Cabaran ${idx + 1}:</b> ${q.summaryPoint}</span>`;
+                listEl.appendChild(li);
+            });
+        }
+
+        /**
+         * ============================================================================
+         * 7. INTEGRASI MEDIAPIPE HANDS (PENGESANAN TANGAN AR SECARA LANGSUNG)
+         * ============================================================================
+         */
+        let handsDetector = null;
+        let webcamCamera = null;
+
+        async function initMediaPipeHands() {
+            const videoElement = document.getElementById('webcam-video');
+            const handCanvas = document.getElementById('hand-canvas');
+            const handCtx = handCanvas.getContext('2d');
+            const virtualCursor = document.getElementById('virtual-cursor');
+
+            handCanvas.width = window.innerWidth;
+            handCanvas.height = window.innerHeight;
+
+            handsDetector = new Hands({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+            });
+
+            handsDetector.setOptions({
+                maxNumHands: 1,
+                modelComplexity: 1,
+                minDetectionConfidence: 0.65,
+                minTrackingConfidence: 0.65
+            });
+
+            handsDetector.onResults((results) => {
+                handCtx.clearRect(0, 0, handCanvas.width, handCanvas.height);
+
+                if (!useCameraAR) {
+                    virtualCursor.style.display = 'none';
+                    return;
+                }
+
+                if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                    const landmarks = results.multiHandLandmarks[0];
+
+                    // Lukis rangka tangan neon (Cerminkan paksi X supaya selari dengan video)
+                    handCtx.save();
+                    handCtx.scale(-1, 1);
+                    handCtx.translate(-handCanvas.width, 0);
+                    drawConnectors(handCtx, landmarks, HAND_CONNECTIONS, { color: '#38bdf8', lineWidth: 3 });
+                    drawLandmarks(handCtx, landmarks, { color: '#facc15', lineWidth: 1, radius: 4 });
+                    handCtx.restore();
+
+                    // Titik 4 = Hujung Ibu Jari (Thumb Tip), Titik 8 = Hujung Jari Telunjuk (Index Tip)
+                    const thumbTip = landmarks[4];
+                    const indexTip = landmarks[8];
+
+                    // Kira titik tengah antara ibu jari dan jari telunjuk (dicerminkan paksi X)
+                    const midX = (1 - (thumbTip.x + indexTip.x) / 2) * window.innerWidth;
+                    const midY = ((thumbTip.y + indexTip.y) / 2) * window.innerHeight;
+
+                    // Kira jarak antara hujung ibu jari & jari telunjuk untuk mengesan gestur CUBIT (PINCH)
+                    const dx = thumbTip.x - indexTip.x;
+                    const dy = thumbTip.y - indexTip.y;
+                    const pinchDistance = Math.sqrt(dx * dx + dy * dy);
+
+                    // Ambang batas cubitan (Pinch threshold)
+                    const currentlyPinching = pinchDistance < 0.065;
+
+                    // Papar dan gerakkan Kursor Maya
+                    virtualCursor.style.display = 'flex';
+                    virtualCursor.style.left = `${midX}px`;
+                    virtualCursor.style.top = `${midY}px`;
+                    if (currentlyPinching) {
+                        virtualCursor.classList.add('pinching');
+                    } else {
+                        virtualCursor.classList.remove('pinching');
+                    }
+
+                    // Kemas kini interaksi 3D
+                    updateInteraction(midX, midY, currentlyPinching);
+                } else {
+                    virtualCursor.style.display = 'none';
+                    if (grabbedObject) {
+                        updateInteraction(cursorScreenPos.x, cursorScreenPos.y, false);
+                    }
+                }
+            });
+
+            try {
+                webcamCamera = new Camera(videoElement, {
+                    onFrame: async () => {
+                        if (useCameraAR && handsDetector) {
+                            await handsDetector.send({ image: videoElement });
+                        }
+                    },
+                    width: 1280,
+                    height: 720
+                });
+                await webcamCamera.start();
+                cameraActive = true;
+                document.getElementById('gesture-status-dot').className = "w-3.5 h-3.5 rounded-full bg-emerald-400";
+            } catch (err) {
+                console.warn("Kamera tidak dapat diakses, beralih ke Mod Tetikus/Sentuh:", err);
+                switchToMouseModeUI();
+            }
+        }
+
+        /**
+         * ============================================================================
+         * 8. KAWALAN ALTERNATIF: TETIKUS (MOUSE) & SKRIN SENTUH (TOUCH)
+         * ============================================================================
+         */
+        function setupMouseAndTouchControls() {
+            const canvas = document.getElementById('three-canvas');
+            let isPointerDown = false;
+
+            // Mouse Events
+            canvas.addEventListener('mousedown', (e) => {
+                if (useCameraAR) return;
+                isPointerDown = true;
+                updateInteraction(e.clientX, e.clientY, true);
+            });
+
+            window.addEventListener('mousemove', (e) => {
+                if (useCameraAR) return;
+                updateInteraction(e.clientX, e.clientY, isPointerDown);
+            });
+
+            window.addEventListener('mouseup', (e) => {
+                if (useCameraAR) return;
+                if (isPointerDown) {
+                    isPointerDown = false;
+                    updateInteraction(e.clientX, e.clientY, false);
+                }
+            });
+
+            // Touch Events (Untuk Papan Pintar / Smartboard / Tablet)
+            canvas.addEventListener('touchstart', (e) => {
+                if (useCameraAR) return;
+                if (e.touches.length > 0) {
+                    isPointerDown = true;
+                    const t = e.touches[0];
+                    updateInteraction(t.clientX, t.clientY, true);
+                }
+            }, { passive: false });
+
+            window.addEventListener('touchmove', (e) => {
+                if (useCameraAR) return;
+                if (isPointerDown && e.touches.length > 0) {
+                    const t = e.touches[0];
+                    updateInteraction(t.clientX, t.clientY, true);
+                }
+            }, { passive: false });
+
+            window.addEventListener('touchend', (e) => {
+                if (useCameraAR) return;
+                if (isPointerDown) {
+                    isPointerDown = false;
+                    updateInteraction(0, 0, false);
+                }
+            });
+        }
+
+        function switchToMouseModeUI() {
+            useCameraAR = false;
+            document.getElementById('webcam-video').style.display = 'none';
+            document.getElementById('virtual-cursor').style.display = 'none';
+            document.getElementById('mode-icon').innerText = '🖱️';
+            document.getElementById('mode-text').innerText = 'Mod Tetikus/Sentuh';
+            document.getElementById('gesture-instruction').innerText = '🖱️ Klik & Seret (atau Sentuh & Seret) objek 3D jawapan ke dalam Portal Sasaran!';
+            document.getElementById('gesture-status-dot').className = "w-3.5 h-3.5 rounded-full bg-sky-400";
+        }
+
+        function toggleInputMode() {
+            if (useCameraAR) {
+                switchToMouseModeUI();
+            } else {
+                useCameraAR = true;
+                document.getElementById('webcam-video').style.display = 'block';
+                document.getElementById('mode-icon').innerText = '🖐️';
+                document.getElementById('mode-text').innerText = 'Mod AR Tangan';
+                document.getElementById('gesture-instruction').innerText = '🖐️ Halakan tangan ke kamera & CUBIT (Ibu jari + Telunjuk) untuk PICK & DRAG!';
+                if (!cameraActive) {
+                    initMediaPipeHands();
+                }
+            }
+        }
+
+        /**
+         * ============================================================================
+         * 9. KAWALAN SISTEM (MULA, MAIN SEMULA, FULLSCREEN, GELUNG ANIMASI)
+         * ============================================================================
+         */
+        function startExperience(withCamera) {
+            initAudio();
+            document.getElementById('start-modal').style.display = 'none';
+
+            if (!scene) {
+                initThreeJS();
+            }
+
+            currentQuestionIndex = 0;
+            score = 0;
+            document.getElementById('score-display').innerText = '0';
+            loadQuestion(0);
+
+            if (withCamera) {
+                useCameraAR = true;
+                initMediaPipeHands();
+            } else {
+                switchToMouseModeUI();
+            }
+        }
+
+        function restartGame() {
+            // Tutup semua modal aktif
+            document.getElementById('feedback-modal').classList.add('hidden');
+            document.getElementById('feedback-modal').classList.remove('flex');
+            document.getElementById('summary-modal').classList.add('hidden');
+            document.getElementById('summary-modal').classList.remove('flex');
+
+            currentQuestionIndex = 0;
+            score = 0;
+            document.getElementById('score-display').innerText = '0';
+            loadQuestion(0);
+        }
+
+        function toggleFullScreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(err => {
+                    console.log(`Ralat skrin penuh: ${err.message}`);
+                });
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                }
+            }
+        }
+
+        function onWindowResize() {
+            if (camera && renderer) {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            }
+            const handCanvas = document.getElementById('hand-canvas');
+            if (handCanvas) {
+                handCanvas.width = window.innerWidth;
+                handCanvas.height = window.innerHeight;
+            }
+        }
+
+        /**
+         * Gelung Animasi Utama (60 FPS)
+         */
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const time = Date.now() * 0.001;
+
+            // Putar setiap planet 3D secara perlahan supaya nampak hidup
+            draggableObjects.forEach((obj, idx) => {
+                if (obj.userData.sphere) {
+                    obj.userData.sphere.rotation.y += 0.015;
+                }
+                // Kesan terapung lembut jika tidak sedang dipegang
+                if (obj !== grabbedObject && !isQuestionAnswered) {
+                    obj.position.y = obj.userData.homePos.y + Math.sin(time * 2.5 + idx) * 0.08;
+                }
+            });
+
+            // Putar gelang portal sasaran
+            if (dropZoneMesh) {
+                dropZoneMesh.userData.outerRing.rotation.z -= 0.01;
+                dropZoneMesh.userData.innerRing.rotation.z += 0.025;
+            }
+
+            // Putar zarah bintang
+            if (particleSystem) {
+                particleSystem.rotation.y += 0.001;
+            }
+
+            // Kemas kini kedudukan label HTML 2D selari dengan objek 3D
+            updateProjectedLabels();
+
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>
